@@ -1,133 +1,130 @@
-// +build main1
+/*
+   Title: Smart Contract handling transaction CRUD
+   Author: Branko Terzic
+*/
 
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"strconv"
+
 	"github.com/hyperledger/fabric/core/chaincode/shim"
 	"github.com/hyperledger/fabric/protos/peer"
-	"net/http"
-	"strings"
-	"encoding/json"
-	"time"
 )
 
-var logger = shim.NewLogger("RealMarket")
+var logger = shim.NewLogger("SmartContract")
 
-type CarExample struct{}
-
-func main() {
-	fmt.Println("Welcome to the chaincode")
+// Define the Smart Contract structure
+type SmartContract struct {
 }
 
+// Define the transaction model
 type Car struct {
-	carID string
-	name string
+	carID   string
+	name    string
 	ownerID string
-	price float64
-	color string
+	price   float64
+	color   string
 }
 type Person struct {
-	personID string
+	personID  string
 	firstName string
-	lastName string
-	balance float64
+	lastName  string
+	balance   float64
 }
 
-//change color function
-{
-	
-}
+/*
+ * The Init method is called when the Smart Contract "txMan" is instantiated by the blockchain network
+ */
+func (s *SmartContract) Init(APIstub shim.ChaincodeStubInterface) peer.Response {
 
-func main() {
-	// Create a new Smart Contract
-	err := shim.Start(new(CarExample))
+	car := Car{"car1", "Audi", "ownerId", 344.4, "blue"}
+	buyerOk := Person{"buyerOkId", "Mark", "Rush", 350}
+	owner := Person{"ownerId", "Steven", "Tyler", 600}
+
+	carBytes, err := json.Marshal(car)
+	buyerOkBytes, err := json.Marshal(buyerOk)
+	ownerBytes, err := json.Marshal(owner)
+
 	if err != nil {
-		logger.Error("Error creating new Smart Contract")
+		fmt.Println("Error")
 	}
+
+	APIstub.PutState(car.carID, carBytes)
+	APIstub.PutState(buyerOk.personID, buyerOkBytes)
+	APIstub.PutState(owner.personID, ownerBytes)
+
+	return shim.Success(nil)
 }
 
-func (c *CarExample) Invoke(APIstub shim.ChaincodeStubInterface) peer.Response {
-	logger.Info("Invoke")
+/*
+ * The Invoke method is called as a result of an application request to run the Smart Contract
+ * The calling application program has also specified the particular smart contract function to be called, with arguments
+ */
+func (s *SmartContract) Invoke(APIstub shim.ChaincodeStubInterface) peer.Response {
 
-	// Retrieve the requested Smart Contract function and arguments
 	function, args := APIstub.GetFunctionAndParameters()
 
-	logger.Info("Invoked function: " + function)
-
-	// Route to the appropriate handler function to interact with the ledger appropriately
-	switch function {
-	case "transferCarAsset":
-		return c.transferCarAsset(APIstub, args)
-	case "getAssetById":
-		return c.getAssetById(APIstub, args)
-	default:
-		logger.Error("Invalid Smart Contract function name.")
-		return Error(http.StatusNotImplemented, "Invalid Smart Contract function name.")
+	if function == "transferCarAsset" {
+		return s.transferCarAsset(APIstub, args)
 	}
-
+	return shim.Error("Invalid Smart Contract function name.")
 }
 
-func (s *RealMarket) Init(APIstub shim.ChaincodeStubInterface) peer.Response {
-	logger.Info("Init")
-	car := Car{"car1","Audi","ownerId",344.4,"blue"}
-	buyerOk := Person{"buyerOkId","Mark","Rush",350}
-	buyerNotOk := Person{"buyerNotOkId""John","Green",250}
-	owner := Person{"ownerId","Steven","Tyler",600}
-	APIstub.PutState(car.carID,car)
-	APIstub.PutState(buyerOk.personID,buyerOk)
-	APIstub.PutState(buyerNotOk.personID,buyerNotOk)
-	APIstub.PutState(owner.personID,owner)
-	return Success(http.StatusOK, "initialized", nil)
-}
-
-func (s *CarExample) transferCarAsset(APIstub shim.ChaincodeStubInterface, args []string) peer.Response {
-	logger.Info("saveContract")
+func (s *SmartContract) transferCarAsset(APIstub shim.ChaincodeStubInterface, args []string) peer.Response {
 
 	if len(args) != 2 {
 		logger.Error("Incorrect number of arguments. Expecting 2, but was " + strconv.Itoa(len(args)))
-		return Error(http.StatusBadRequest, "Incorrect number of arguments. Expecting 2, but was "+strconv.Itoa(len(args)))
 	}
 
 	// Check arguments
+
 	if len(args[0]) <= 0 {
 		logger.Error("Car ID is required")
-		return Error(http.StatusBadRequest, "Car ID is required")
+		return shim.Error("Car ID is required")
+
 	}
 	if len(args[1]) <= 0 {
-		logger.Error("Buyer ID is required")
-		return Error(http.StatusBadRequest, "Buyer  is required")
+		return shim.Error("buyer ID is required")
 	}
 
 	var carID = args[0]
 	var buyerID = args[1]
 	var car *Car
+	var buyer *Person
+	var owner *Person
 
 	//get buyer person from world state
-	buyer, err := APIstub.GetState(buyerID)
+	buyerBytes, err := APIstub.GetState(buyerID)
 	if err != nil {
-		return Error(http.StatusBadRequest, err.Error())
+		return shim.Error("No such person in world state")
 	}
 
 	//get car from world state
-	car, err = APIstub.GetState(carID)
+	carBytes, err := APIstub.GetState(carID)
 	if err != nil {
-		return Error(http.StatusBadRequest, err.Error())
+		return shim.Error("No such car in world state")
 	}
+	json.Unmarshal(carBytes, &car)
+	json.Unmarshal(buyerBytes, &buyer)
 
 	ownerID := car.ownerID
 	carPrice := car.price
 
 	//get owner person from world state
-	owner, err := APIstub.GetState(ownerID)
+	ownerBytes, err := APIstub.GetState(ownerID)
+
 	if err != nil {
-		return Error(http.StatusBadRequest, err.Error())
+		return shim.Error("No such person in world state")
 	}
+	json.Unmarshal(ownerBytes, &owner)
 
 	//check if buyer has enough funds
 	if buyer.balance < carPrice {
 		logger.Error("Not enough funds")
-		return Error(http.StatusBadRequest, "Not enough funds")
+		return shim.Error("Error")
 	}
 
 	//if everything is ok then change balances
@@ -137,27 +134,39 @@ func (s *CarExample) transferCarAsset(APIstub shim.ChaincodeStubInterface, args 
 	car.ownerID = buyerID
 
 	//persist owner with updated balance
-	err = APIstub.PutState(ownerID, owner)
+	ownerBytes, err = json.Marshal(owner)
+	err = APIstub.PutState(ownerID, ownerBytes)
 
 	if err != nil {
 		logger.Info("PutState error: " + err.Error())
-		return Error(http.StatusBadRequest, err.Error())
+		return shim.Error("PutState error: " + err.Error())
 	}
 	//persist car with updated ownerID
-	err = APIstub.PutState(carID, car)
+	carBytes, err = json.Marshal(car)
+	err = APIstub.PutState(carID, carBytes)
 
 	if err != nil {
 		logger.Info("PutState error: " + err.Error())
-		return Error(http.StatusBadRequest, err.Error())
+		return shim.Error("PutState error: " + err.Error())
 	}
 	//persist owner with updated balance
-	err = APIstub.PutState(buyerID, buyer)
+	buyerBytes, err = json.Marshal(buyer)
+	err = APIstub.PutState(buyerID, buyerBytes)
 
 	if err != nil {
 		logger.Info("PutState error: " + err.Error())
-		return Error(http.StatusBadRequest, err.Error())
+		return shim.Error("PutState error: " + err.Error())
 	}
 
-	return Success(http.StatusOK, "Ownership changed.", car)
+	return shim.Success(nil)
 }
 
+// The main function is only relevant in unit test mode. Only included here for completeness.
+func main() {
+
+	// Create a new Smart Contract
+	err := shim.Start(new(SmartContract))
+	if err != nil {
+		fmt.Printf("Error creating new Smart Contract: %s", err)
+	}
+}
